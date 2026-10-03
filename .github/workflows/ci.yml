@@ -3,6 +3,21 @@ name: Java CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      execution_mode:
+        description: O que deseja executar?
+        required: true
+        type: choice
+        default: todos-os-testes
+        options:
+          - testes-selecionados
+          - todos-os-testes
+          - testes-e-build
+      test_selector:
+        description: Selecione classes ou métodos (ex. TransferServiceTest,CpfValidatorTest)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -21,5 +36,30 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Run tests
+      - name: Validate test selection
+        if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-selecionados'
+        env:
+          TEST_SELECTOR: ${{ inputs.test_selector }}
+        run: |
+          if [ -z "$TEST_SELECTOR" ]; then
+            echo "::error::Informe pelo menos uma classe ou método no campo test_selector."
+            exit 1
+          fi
+
+      - name: Run selected tests
+        if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-selecionados'
+        env:
+          TEST_SELECTOR: ${{ inputs.test_selector }}
+        run: mvn --batch-mode test "-Dtest=$TEST_SELECTOR"
+
+      - name: Run all tests
+        if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'todos-os-testes'
+        run: mvn --batch-mode test
+
+      - name: Run tests and build the project
+        if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-e-build'
+        run: mvn --batch-mode verify
+
+      - name: Run CI verification on push and pull request
+        if: github.event_name != 'workflow_dispatch'
         run: mvn --batch-mode verify
