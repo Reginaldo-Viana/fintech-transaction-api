@@ -204,7 +204,7 @@ class WalletApiIntegrationTest {
                 .post("/api/v1/accounts")
                 .then()
                 .statusCode(201)
-                .body("balance", closeTo(0.00, 0.001))
+                .body("balance", equalTo(0.0f))
                 .extract()
                 .path("id");
     }
