@@ -98,5 +98,11 @@ curl "http://localhost:8080/api/v1/accounts/1/statement?page=0&size=20" \
 mvn test
 ```
 
-Os testes de integração iniciam PostgreSQL 16 com Testcontainers e precisam de Docker. O GitHub Actions executa a suíte em pushes e pull requests.
+Os testes de integração iniciam PostgreSQL 16 com Testcontainers e precisam de Docker. Em pushes e pull requests, o GitHub Actions executa `mvn verify`.
+
+Para escolher o que executar manualmente, acesse **Actions → Java CI → Run workflow** e selecione:
+
+- `testes-selecionados`: execute classes ou métodos informados em `test_selector`, separados por vírgula. Exemplo: `TransferServiceTest,CpfValidatorTest`.
+- `todos-os-testes`: execute a suíte Maven completa.
+- `testes-e-build`: execute a suíte completa e o lifecycle `verify`, incluindo o empacotamento do projeto.
 # fintech-transaction-api
