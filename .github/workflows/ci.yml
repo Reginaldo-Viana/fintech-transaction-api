@@ -1,4 +1,4 @@
-name: Java CI
+name: Fintech Transaction API CI
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       execution_mode:
-        description: O que deseja executar?
+        description: Escolha as etapas que deseja executar
         required: true
         type: choice
         default: todos-os-testes
@@ -15,7 +15,7 @@ on:
           - todos-os-testes
           - testes-e-build
       test_selector:
-        description: Selecione classes ou métodos (ex. TransferServiceTest,CpfValidatorTest)
+        description: Classes ou métodos Maven separados por vírgula
         required: false
         type: string
 
@@ -23,13 +23,14 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  build:
+    name: "1. Construção e validação do projeto"
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
+      - name: Baixando o código-fonte
         uses: actions/checkout@v4
 
-      - name: Set up Java 21
+      - name: Configurando Java 21 e cache Maven
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -37,56 +38,151 @@ jobs:
           cache: maven
 
       - name: Validando configuração do projeto Maven
-        run: mvn --batch-mode validate
+        run: mvn --batch-mode --no-transfer-progress validate
 
-      - name: Compilando o projeto com Java 21
-        run: mvn --batch-mode -DskipTests compile
+      - name: Compilando código da aplicação e dos testes
+        run: mvn --batch-mode --no-transfer-progress test-compile
 
-      - name: Validate test selection
+      - name: Empacotando a aplicação Spring Boot
+        if: github.event_name != 'workflow_dispatch' || inputs.execution_mode == 'testes-e-build'
+        run: mvn --batch-mode --no-transfer-progress package -Dmaven.test.skip=true
+
+  tests:
+    name: "2. Testes unitários"
+    needs: build
+    if: >-
+      ${{
+        needs.build.result == 'success' &&
+        (
+          github.event_name != 'workflow_dispatch' ||
+          inputs.execution_mode == 'testes-selecionados' ||
+          inputs.execution_mode == 'todos-os-testes' ||
+          inputs.execution_mode == 'testes-e-build'
+        )
+      }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Baixando o código-fonte
+        uses: actions/checkout@v4
+
+      - name: Configurando Java 21 e cache Maven
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Validando seleção de testes
         if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-selecionados'
         env:
           TEST_SELECTOR: ${{ inputs.test_selector }}
         run: |
           if [ -z "$TEST_SELECTOR" ]; then
-            echo "::error::Informe pelo menos uma classe ou método no campo test_selector."
+            echo "::error::Informe classes ou métodos Maven no campo test_selector."
             exit 1
           fi
 
-      - name: Executando os testes selecionados
+      - name: Executando testes selecionados
         if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-selecionados'
         env:
           TEST_SELECTOR: ${{ inputs.test_selector }}
-        run: mvn --batch-mode test "-Dtest=$TEST_SELECTOR"
+        run: mvn --batch-mode --no-transfer-progress test "-Dtest=$TEST_SELECTOR"
 
-      - name: Executando todos os testes
-        if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'todos-os-testes'
-        run: mvn --batch-mode test
+      - name: Executando testes unitários
+        if: github.event_name != 'workflow_dispatch' || inputs.execution_mode != 'testes-selecionados'
+        run: mvn --batch-mode --no-transfer-progress test '-Dtest=!WalletApiIntegrationTest'
 
-      - name: Executando todos os testes para build
-        if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-e-build'
-        run: mvn --batch-mode test
+  integration:
+    name: "3. Testes de integração com PostgreSQL"
+    needs: [build, tests]
+    if: >-
+      ${{
+        needs.build.result == 'success' &&
+        needs.tests.result == 'success' &&
+        (
+          github.event_name != 'workflow_dispatch' ||
+          inputs.execution_mode == 'todos-os-testes' ||
+          inputs.execution_mode == 'testes-e-build'
+        )
+      }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Baixando o código-fonte
+        uses: actions/checkout@v4
 
-      - name: Executando todos os testes no push ou pull request
-        if: github.event_name != 'workflow_dispatch'
-        run: mvn --batch-mode test
+      - name: Configurando Java 21 e cache Maven
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
 
-      - name: Empacotando a aplicação
-        if: (github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-e-build') || github.event_name != 'workflow_dispatch'
-        run: mvn --batch-mode -DskipTests package
+      - name: Executando testes de integração com PostgreSQL via Testcontainers
+        run: mvn --batch-mode --no-transfer-progress test -Dtest=WalletApiIntegrationTest
 
-      - name: Construindo imagem Docker (sem publicar)
-        if: (github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-e-build') || github.event_name != 'workflow_dispatch'
-        run: docker build --tag digital-wallet-api:${{ github.sha }} .
+  acceptance:
+    name: "4. Testes de aceitação no ambiente de aplicação"
+    needs: [build, tests, integration]
+    if: >-
+      ${{
+        always() &&
+        needs.build.result == 'success' &&
+        needs.tests.result == 'success' &&
+        needs.integration.result == 'success' &&
+        (
+          github.event_name != 'workflow_dispatch' ||
+          inputs.execution_mode == 'testes-e-build'
+        )
+      }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Baixando o código-fonte
+        uses: actions/checkout@v4
 
-      - name: Publicando resumo das etapas
-        if: always()
-        env:
-          EXECUTION_MODE: ${{ inputs.execution_mode }}
+      - name: Construindo a imagem Docker da aplicação
+        run: docker compose -f docker-compose.yml build api
+
+      - name: Implantando no ambiente temporário para aceitação
+        run: docker compose -f docker-compose.yml up -d
+
+      - name: Aguardando a API iniciar
         run: |
-          {
-            echo "## Resumo do workflow"
-            echo "- Evento: \`${{ github.event_name }}\`"
-            echo "- Modo manual: \`${EXECUTION_MODE:-CI automático}\`"
-            echo "- Java: 21"
-            echo "- Deploy: não configurado; a imagem Docker foi construída sem publicação."
-          } >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+
+          for attempt in {1..60}; do
+            status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:8080/api/v1/wallet || true)
+            if [ "$status" = "401" ]; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              docker compose -f docker-compose.yml logs api postgres
+              echo "::error::A API não ficou disponível a tempo."
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Validando cadastro de conta, autenticação JWT e consulta de saldo
+        run: |
+          set -euo pipefail
+
+          account=$(curl --fail --silent --show-error \
+            --request POST http://localhost:8080/api/v1/accounts \
+            --header 'Content-Type: application/json' \
+            --data '{"name":"CI Acceptance Test","email":"ci-acceptance@example.com","document":"529.982.247-25","password":"senha-segura"}')
+          account_id=$(echo "$account" | jq --exit-status --raw-output '.id')
+
+          login=$(curl --fail --silent --show-error \
+            --request POST http://localhost:8080/api/v1/auth/login \
+            --header 'Content-Type: application/json' \
+            --data '{"email":"ci-acceptance@example.com","password":"senha-segura"}')
+          token=$(echo "$login" | jq --exit-status --raw-output '.accessToken')
+
+          curl --fail --silent --show-error \
+            "http://localhost:8080/api/v1/accounts/$account_id" \
+            --header "Authorization: Bearer $token" |
+            jq --exit-status '.balance == 0'
+
+      - name: Encerrando ambiente temporário de aceitação
+        if: always()
+        run: docker compose -f docker-compose.yml down --volumes --remove-orphans
