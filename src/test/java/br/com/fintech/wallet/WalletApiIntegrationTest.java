@@ -1,7 +1,6 @@
 package br.com.fintech.wallet;
 
 import static io.restassured.RestAssured.given;
-import static org.hamcrest.Matchers.closeTo;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
@@ -92,7 +91,7 @@ class WalletApiIntegrationTest {
                 .post("/api/v1/transfers")
                 .then()
                 .statusCode(201)
-                .body("amount", closeTo(25.50, 0.001))
+                .body("amount", equalTo(25.5f))
                 .body("type", equalTo("TRANSFER"))
                 .extract()
                 .path("id");
@@ -124,7 +123,7 @@ class WalletApiIntegrationTest {
                 .get("/api/v1/wallet")
                 .then()
                 .statusCode(200)
-                .body("balance", closeTo(74.50, 0.001));
+                .body("balance", equalTo(74.5f));
 
         given()
                 .auth().oauth2(token)
