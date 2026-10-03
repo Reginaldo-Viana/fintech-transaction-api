@@ -36,6 +36,12 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - name: Validando configuração do projeto Maven
+        run: mvn --batch-mode validate
+
+      - name: Compilando o projeto com Java 21
+        run: mvn --batch-mode -DskipTests compile
+
       - name: Validate test selection
         if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-selecionados'
         env:
@@ -46,20 +52,41 @@ jobs:
             exit 1
           fi
 
-      - name: Run selected tests
+      - name: Executando os testes selecionados
         if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-selecionados'
         env:
           TEST_SELECTOR: ${{ inputs.test_selector }}
         run: mvn --batch-mode test "-Dtest=$TEST_SELECTOR"
 
-      - name: Run all tests
+      - name: Executando todos os testes
         if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'todos-os-testes'
         run: mvn --batch-mode test
 
-      - name: Run tests and build the project
+      - name: Executando todos os testes para build
         if: github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-e-build'
-        run: mvn --batch-mode verify
+        run: mvn --batch-mode test
 
-      - name: Run CI verification on push and pull request
+      - name: Executando todos os testes no push ou pull request
         if: github.event_name != 'workflow_dispatch'
-        run: mvn --batch-mode verify
+        run: mvn --batch-mode test
+
+      - name: Empacotando a aplicação
+        if: (github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-e-build') || github.event_name != 'workflow_dispatch'
+        run: mvn --batch-mode -DskipTests package
+
+      - name: Construindo imagem Docker (sem publicar)
+        if: (github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'testes-e-build') || github.event_name != 'workflow_dispatch'
+        run: docker build --tag digital-wallet-api:${{ github.sha }} .
+
+      - name: Publicando resumo das etapas
+        if: always()
+        env:
+          EXECUTION_MODE: ${{ inputs.execution_mode }}
+        run: |
+          {
+            echo "## Resumo do workflow"
+            echo "- Evento: \`${{ github.event_name }}\`"
+            echo "- Modo manual: \`${EXECUTION_MODE:-CI automático}\`"
+            echo "- Java: 21"
+            echo "- Deploy: não configurado; a imagem Docker foi construída sem publicação."
+          } >> "$GITHUB_STEP_SUMMARY"
