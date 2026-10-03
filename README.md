@@ -98,13 +98,13 @@ curl "http://localhost:8080/api/v1/accounts/1/statement?page=0&size=20" \
 mvn test
 ```
 
-Os testes de integração iniciam PostgreSQL 16 com Testcontainers e precisam de Docker. No GitHub Actions, as etapas aparecem separadas para configuração Maven, compilação, execução dos testes, empacotamento e construção da imagem Docker.
+Os testes de integração iniciam PostgreSQL 16 com Testcontainers e precisam de Docker. No GitHub Actions, o pipeline exibe quatro jobs sequenciais: **1. Construção e validação do projeto → 2. Testes unitários → 3. Testes de integração com PostgreSQL → 4. Testes de aceitação no ambiente de aplicação**.
 
-Em pushes e pull requests, o workflow executa a suíte completa, empacota a aplicação e constrói a imagem Docker, sem publicá-la. Deploy não está configurado porque requer escolher um destino e configurar as respectivas credenciais.
+Em pushes e pull requests, todas as fases são automatizadas. A última inicia a API e o PostgreSQL em um ambiente efêmero via Docker Compose e valida cadastro, login e consulta autenticada. O ambiente é encerrado ao final. O fluxo representa CI e validação de aceitação; não há publicação de imagem ou implantação em produção configuradas.
 
-Para escolher o que executar manualmente, acesse **Actions → Java CI → Run workflow** e selecione:
+Para escolher o que executar manualmente, acesse **Actions → Build, test, and smoke check → Run workflow** e selecione:
 
-- `testes-selecionados`: execute classes ou métodos informados em `test_selector`, separados por vírgula. Exemplo: `TransferServiceTest,CpfValidatorTest`.
-- `todos-os-testes`: execute a suíte Maven completa.
-- `testes-e-build`: execute a suíte completa, empacote a aplicação e construa a imagem Docker sem publicá-la.
+- `testes-selecionados`: executa construção/validação e somente as classes ou métodos informados em `test_selector`. Exemplo: `TransferServiceTest,CpfValidatorTest`.
+- `todos-os-testes`: executa construção/validação, testes unitários e integração com PostgreSQL.
+- `testes-e-build`: executa todas as fases, incluindo empacotamento e aceitação em um ambiente efêmero Docker Compose.
 # fintech-transaction-api
